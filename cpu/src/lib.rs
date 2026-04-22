@@ -176,6 +176,118 @@ impl Instruction {
     pub fn immu(&self) -> i16 {
         (self.0 & 0xFFC0) as i16
     }
+
+    fn register_name(which: usize) -> &'static str {
+        match which {
+            0 => "zero",
+            1 => "ra",
+            2 => "sp",
+            3 => "gp",
+            4 => "tp",
+            5 => "t0",
+            6 => "t1",
+            7 => "t2",
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl core::fmt::Display for ROperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ROperation::Add => f.write_str("add"),
+            ROperation::Sub => f.write_str("sub"),
+            ROperation::Xor => f.write_str("xor"),
+            ROperation::Or => f.write_str("or"),
+            ROperation::And => f.write_str("and"),
+            ROperation::Sll => f.write_str("sll"),
+            ROperation::Srl => f.write_str("srl"),
+            ROperation::Sra => f.write_str("sra"),
+            ROperation::Slt => f.write_str("slt"),
+            ROperation::Sltu => f.write_str("sltu"),
+        }
+    }
+}
+
+impl core::fmt::Display for IOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IOperation::Lb => f.write_str("lb"),
+            IOperation::Lh => f.write_str("lh"),
+            IOperation::Addi => f.write_str("addi"),
+            IOperation::Lbu => f.write_str("lbu"),
+            IOperation::Jalr => f.write_str("jalr"),
+            IOperation::Ecall => f.write_str("ecall"),
+            IOperation::Ebreak => f.write_str("ebreak"),
+        }
+    }
+}
+
+impl core::fmt::Display for SOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SOperation::Sb => f.write_str("sb"),
+            SOperation::Sh => f.write_str("sh"),
+            SOperation::Beq => f.write_str("beq"),
+            SOperation::Blt => f.write_str("blt"),
+        }
+    }
+}
+
+impl core::fmt::Display for UOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UOperation::Lui => f.write_str("lui"),
+            UOperation::Auipc => f.write_str("auipc"),
+        }
+    }
+}
+
+impl core::fmt::Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let operation = self.operation();
+        match operation {
+            Operation::Invalid => write!(f, ".dw 0x{:X} /* invalid */", self.0),
+            Operation::Reserved => write!(f, ".dw 0x{:X} /* reserved */", self.0),
+            Operation::R(roperation) => {
+                let rd = Self::register_name(self.rd());
+                let rs1 = Self::register_name(self.rs1());
+                let rs2 = Self::register_name(self.rs2());
+                write!(f, "{roperation} {rd}, {rs1}, {rs2}")
+            }
+            Operation::I(ioperation) => {
+                let rd = Self::register_name(self.rd());
+                let rs1 = Self::register_name(self.rs1());
+                let imm = self.imm();
+                match ioperation {
+                    IOperation::Lb
+                    | IOperation::Lh
+                    | IOperation::Addi
+                    | IOperation::Lbu
+                    | IOperation::Jalr => write!(f, "{ioperation} {rd}, {imm}({rs1})"),
+                    IOperation::Ecall | IOperation::Ebreak => write!(f, "{ioperation} {rd}, {rs1}"),
+                }
+            }
+            Operation::S(soperation) => {
+                let rs1 = Self::register_name(self.rs1());
+                let rs2 = Self::register_name(self.rs2());
+                let imm = self.imms();
+                match soperation {
+                    SOperation::Sb | SOperation::Sh => {
+                        write!(f, "{soperation} {rs2}, {imm}({rs1})")
+                    }
+                    SOperation::Beq | SOperation::Blt => {
+                        write!(f, "{soperation} {rs1}, {rs2}, {imm}")
+                    }
+                }
+            }
+            Operation::U(uoperation) => {
+                let rd = Self::register_name(self.rd());
+                let imm = self.immu();
+                write!(f, "{uoperation} {rd}, {imm}")
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -305,7 +417,6 @@ impl Hart {
                         self.pc += 2;
                     }
                     SOperation::Sh => {
-                        
                         writeb(rs1.wrapping_add_signed(imm), rs2 as u8);
                         writeb(
                             rs1.wrapping_add_signed(imm).wrapping_add(1),
@@ -350,37 +461,4 @@ impl Hart {
         }
         true
     }
-}
-
-fn main() {
-    let mut hart = Hart::new();
-    let mut ram = [0u8; 65536];
-    ram[0] = 0o231; // lui x3, 128
-    ram[1] = 0;
-    ram[2] = 0o022; // li x2, 31
-    ram[3] = 0x7c;
-    ram[4] = 0o011; // lui x1, 256
-    ram[5] = 0x1;
-    ram[6] = 0o022; // 1: addi x2, x2, 1
-    ram[7] = 0x5;
-    ram[8] = 0o204; // sb x2, x1
-    ram[9] = 0x8;
-    ram[10] = 0o163; // blt x2, x3, 1b
-    ram[11] = 0xed;
-    ram[12] = 7; // jalr zero, zero, 0
-    ram[13] = 0;
-    while hart.step(&mut |addr, value, we| {
-        if we {
-            ram[addr as usize] = value;
-            if addr == 0x100 {
-                print!("{}", value as char);
-            }
-            value
-        } else {
-            ram[addr as usize]
-        }
-    }) {
-        //println!("{hart:?}");
-    }
-    println!("{hart:?}");
 }
